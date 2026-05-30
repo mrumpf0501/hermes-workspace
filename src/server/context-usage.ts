@@ -48,6 +48,12 @@ const MODEL_CONTEXT_WINDOWS: Record<string, number> = {
   'o3-mini': 200_000,
   'gemini-2.5-flash': 1_000_000,
   'gemini-2.5-pro': 1_000_000,
+  'gemini-3-flash': 1_048_576,
+  'gemini-3-pro': 1_048_576,
+  'gemini-3-deep-think': 1_048_576,
+  'gemini-3.1-pro': 2_097_152,
+  'gemini-3.1-flash-lite': 1_048_576,
+  'gemini-3.5-flash': 1_048_576,
   'kimi-k2.6': 256_000,
 }
 

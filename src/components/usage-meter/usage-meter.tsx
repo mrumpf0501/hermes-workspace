@@ -78,6 +78,7 @@ function saveStatsView(view: StatsView) {
 }
 
 const MODEL_PRICING: Record<string, { input: number; output: number }> = {
+  // OpenAI
   'gpt-4o': { input: 5, output: 15 },
   'gpt-4o-mini': { input: 0.15, output: 0.6 },
   'gpt-4.1': { input: 3, output: 15 },
@@ -86,9 +87,46 @@ const MODEL_PRICING: Record<string, { input: number; output: number }> = {
   o1: { input: 15, output: 60 },
   'o1-mini': { input: 3, output: 12 },
   'o3-mini': { input: 1.1, output: 4.4 },
+  o3: { input: 10, output: 40 },
+  'o4-mini': { input: 1.1, output: 4.4 },
+  // Anthropic
   'claude-3.5-sonnet': { input: 3, output: 15 },
   'claude-3.5-haiku': { input: 0.8, output: 4 },
   'claude-3-opus': { input: 15, output: 75 },
+  'claude-3.7-sonnet': { input: 3, output: 15 },
+  'claude-sonnet-4': { input: 3, output: 15 },
+  'claude-opus-4': { input: 15, output: 75 },
+  // Google Gemini (prices per million tokens)
+  // Gemini 3.x series (current production)
+  'gemini-3.5-flash': { input: 1.5, output: 9 },
+  'gemini-3.1-pro': { input: 2, output: 12 },
+  'gemini-3-pro': { input: 2, output: 12 },
+  'gemini-3-deep-think': { input: 4, output: 24 },
+  'gemini-3-flash': { input: 0.5, output: 3 },
+  'gemini-3.1-flash-lite': { input: 0.25, output: 1.5 },
+  // Gemini 2.5 series (legacy)
+  'gemini-2.5-pro': { input: 1.25, output: 10 },
+  'gemini-2.5-flash': { input: 0.15, output: 0.6 },
+  'gemini-2.5-flash-lite': { input: 0.1, output: 0.4 },
+  // Gemini 2.0 series (legacy)
+  'gemini-2.0-flash': { input: 0.1, output: 0.4 },
+  'gemini-2.0-flash-lite': { input: 0.075, output: 0.3 },
+  // Gemini 1.5 series (legacy)
+  'gemini-1.5-pro': { input: 1.25, output: 5 },
+  'gemini-1.5-flash': { input: 0.075, output: 0.3 },
+  'gemini-1.5-flash-8b': { input: 0.0375, output: 0.15 },
+}
+
+/** Strip provider prefixes (e.g. "google/gemini-2.5-flash" → "gemini-2.5-flash") */
+function normalizeModelKey(model: string): string {
+  return model
+    .trim()
+    .toLowerCase()
+    .replace(/^(openrouter\/)?google\//, '')
+    .replace(/^(openrouter\/)?anthropic\//, '')
+    .replace(/^(openrouter\/)?openai\//, '')
+    .replace(/^vertex\//, '')
+    .replace(/^openrouter\//, '')
 }
 
 type UsageSummary = {
@@ -167,8 +205,14 @@ function readPercent(value: unknown): number {
 function resolvePricing(
   model: string,
 ): { input: number; output: number } | null {
-  const key = model.trim().toLowerCase()
-  return MODEL_PRICING[key] ?? null
+  const key = normalizeModelKey(model)
+  // Exact match first
+  if (MODEL_PRICING[key]) return MODEL_PRICING[key]
+  // Substring match: "gemini-2.5-flash-preview-05-20" → "gemini-2.5-flash"
+  for (const [prefix, pricing] of Object.entries(MODEL_PRICING)) {
+    if (key.startsWith(prefix) || key.includes(prefix)) return pricing
+  }
+  return null
 }
 
 function calculateCost(
