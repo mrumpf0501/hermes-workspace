@@ -1043,14 +1043,16 @@ export function useConductorGateway() {
       const isBlocked = state === 'blocked' || state === 'needs_input'
       const personaNames = ['Nova', 'Pixel', 'Blaze', 'Echo', 'Sage', 'Drift', 'Flux', 'Volt']
       const persona = personaNames[index % personaNames.length]
+      const totalTokens = Number((assignment as Record<string, unknown>).totalTokens ?? 0) || 0
+      const workerModel = String((assignment as Record<string, unknown>).model ?? 'native-swarm')
       return {
         key: workerId,
         label: workerId,
-        model: 'native-swarm',
+        model: workerModel,
         status: isComplete ? 'complete' : isBlocked ? 'stale' : 'running',
         updatedAt: missionUpdatedAt,
         displayName: `${persona} · ${state}`,
-        totalTokens: 0,
+        totalTokens,
         contextTokens: 0,
         tokenUsageLabel: state,
         raw: {
@@ -1058,7 +1060,7 @@ export function useConductorGateway() {
           label: workerId,
           friendlyId: workerId,
           status: isComplete ? 'completed' : 'running',
-          model: 'native-swarm',
+          model: workerModel,
           lastMessage: null,
           createdAt: missionStatusQuery.data?.updatedAt ?? Date.now(),
           startedAt: missionStatusQuery.data?.updatedAt ?? Date.now(),

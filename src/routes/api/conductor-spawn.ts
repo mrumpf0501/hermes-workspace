@@ -14,6 +14,7 @@ import { recordMissionCheckpoint } from '../../server/swarm-missions'
 import { getSwarmProfilePath } from '../../server/swarm-foundation'
 import { readWorkerMessages } from '../../server/swarm-chat-reader'
 import { newestCheckpointFromMessages } from '../../server/swarm-checkpoints'
+import { getSwarmLifecycleStatus } from '../../server/swarm-lifecycle'
 
 let cachedSkill: string | null = null
 
@@ -270,6 +271,24 @@ function nativeMissionLines(mission: SwarmMission, maxLines: number): Array<stri
 }
 
 export function toNativeConductorMissionRecord(mission: SwarmMission, maxLines = 400) {
+  const assignmentsWithTokens = mission.assignments.map((assignment) => {
+    let totalTokens = 0
+    let inputTokens = 0
+    let outputTokens = 0
+    let model: string | null = null
+    if (assignment.workerId) {
+      try {
+        const lifecycle = getSwarmLifecycleStatus(assignment.workerId)
+        totalTokens = lifecycle.totalTokens
+        inputTokens = lifecycle.inputTokens
+        outputTokens = lifecycle.outputTokens
+        model = lifecycle.model
+      } catch {
+        // lifecycle data unavailable — leave at 0
+      }
+    }
+    return { ...assignment, totalTokens, inputTokens, outputTokens, model }
+  })
   return {
     id: mission.id,
     name: mission.title,
@@ -281,7 +300,7 @@ export function toNativeConductorMissionRecord(mission: SwarmMission, maxLines =
     nativeSwarm: true,
     modeOfficialOotb: true,
     modeNote: NATIVE_CONDUCTOR_MODE_NOTE,
-    assignments: mission.assignments,
+    assignments: assignmentsWithTokens,
     updatedAt: mission.updatedAt,
   }
 }
