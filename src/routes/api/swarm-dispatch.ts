@@ -797,7 +797,6 @@ function runWorker(assignment: AssignmentRequest, timeoutMs: number, roster: Swa
       },
     })
     const startedAt = Date.now()
-    const wrapperPath = getWrapperPath(workerId)
 
     // Prefer the persistent live agent session when available/startable.
     const liveResult = await sendPromptToLiveSession(workerId, prompt)
@@ -885,8 +884,12 @@ function runWorker(assignment: AssignmentRequest, timeoutMs: number, roster: Swa
       return
     }
 
-    const useWrapper = existsSync(wrapperPath)
-    const cmd = useWrapper ? wrapperPath : resolveHermesBin()
+    // For oneshot dispatch, always call hermes directly (not via wrapper).
+    // Wrappers are designed for interactive TUI sessions and may not correctly
+    // forward args needed for non-interactive -q dispatch. HERMES_HOME is
+    // already set in env, so the correct profile is used regardless.
+    const cmd = resolveHermesBin()
+    const workerCwd = resolveWorkerCwd(workerId)
     const args = ['chat', '-q', prompt, '-Q', '--yolo', '--ignore-rules', '--source', 'swarm-dispatch']
     const env: NodeJS.ProcessEnv = {
       ...process.env,
@@ -903,7 +906,7 @@ function runWorker(assignment: AssignmentRequest, timeoutMs: number, roster: Swa
       args,
       {
         env,
-        cwd: homedir(),
+        cwd: workerCwd,
         timeout: timeoutMs,
         maxBuffer: MAX_OUTPUT_CHARS,
         killSignal: 'SIGTERM',
