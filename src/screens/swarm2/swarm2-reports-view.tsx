@@ -100,7 +100,7 @@ export type Swarm2ReportRow = {
   previews: Array<RuntimePreview>
 }
 
-export type Swarm2InboxLaneId = 'needs_review' | 'blocked' | 'ready'
+export type Swarm2InboxLaneId = 'needs_review' | 'blocked'
 
 export type Swarm2InboxItem = Swarm2ReportRow & {
   lane: Swarm2InboxLaneId
@@ -308,13 +308,12 @@ export function buildSwarm2InboxLanes({
   const rows = buildSwarm2ReportRows({ missions, runtimes })
   const actionable = rows.filter((row): row is Swarm2InboxItem => {
     if (row.kind !== 'checkpoint' || !row.missionId) return false
-    return row.state === 'needs_review' || row.state === 'blocked' || row.state === 'ready'
+    return row.state === 'needs_review' || row.state === 'blocked'
   }).map((row) => ({ ...row, lane: row.state as Swarm2InboxLaneId }))
 
   return {
     needs_review: actionable.filter((row) => row.lane === 'needs_review'),
     blocked: actionable.filter((row) => row.lane === 'blocked'),
-    ready: actionable.filter((row) => row.lane === 'ready'),
   }
 }
 
@@ -498,6 +497,7 @@ export function Swarm2ReportsView({
   onOpenItem,
   onRouteToReviewer,
   onRefresh,
+  selectedWorkerId,
 }: {
   missions: Array<MissionSummary>
   runtimes: Array<RuntimeReportEntry>
@@ -505,6 +505,7 @@ export function Swarm2ReportsView({
   onOpenItem?: (row: Swarm2InboxItem) => void
   onRouteToReviewer?: (row: Swarm2InboxItem) => void
   onRefresh?: () => Promise<void> | void
+  selectedWorkerId?: string | null
 }) {
   const [stateFilter, setStateFilter] = useState<ReportState>('all')
   const [layout, setLayout] = useState<ReportLayout>('cards')
@@ -515,6 +516,14 @@ export function Swarm2ReportsView({
   const [replyErrors, setReplyErrors] = useState<Record<string, string | null>>({})
   const [busyId, setBusyId] = useState<string | null>(null)
   const [toastMessage, setToastMessage] = useState<string | null>(null)
+
+  // When a worker is selected externally (e.g. from Swarm Updates notification),
+  // update the worker filter so the relevant reports become visible.
+  useEffect(() => {
+    if (selectedWorkerId && selectedWorkerId !== 'all') {
+      setWorkerFilter(selectedWorkerId)
+    }
+  }, [selectedWorkerId])
 
   useEffect(() => {
     if (!toastMessage) return
@@ -625,7 +634,14 @@ export function Swarm2ReportsView({
   }
 
   function openWorker(row: Swarm2InboxItem) {
-    onOpenItem?.(row)
+    // Navigate to the worker's card/runtime view. onSelectWorker switches to
+    // the 'cards' tab and highlights the worker — visibly more useful than
+    // onOpenItem which stays on reports (no-op when already there).
+    if (row.workerId && onSelectWorker) {
+      onSelectWorker(row.workerId)
+    } else {
+      onOpenItem?.(row)
+    }
   }
 
   function renderReplyComposer(row: Swarm2InboxItem) {
@@ -800,7 +816,6 @@ export function Swarm2ReportsView({
         <div className="grid gap-3 xl:grid-cols-3">
           {renderInboxLane('needs_review', 'Needs review', inboxLanes.needs_review, 'Reviewer lane is clear. Route the next completed worker output through swarm6.')}
           {renderInboxLane('blocked', 'Blocked / needs input', inboxLanes.blocked, 'No blockers waiting on human input.')}
-          {renderInboxLane('ready', 'Ready', inboxLanes.ready, 'Nothing is ready yet.')}
         </div>
       ) : layout === 'cards' ? (
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -857,7 +872,7 @@ export function Swarm2ReportsView({
                     {(card.state === 'needs_review' || card.state === 'blocked' || card.state === 'ready') ? (
                       <button
                         type="button"
-                        onClick={() => onRouteToReviewer?.(card)}
+                        onClick={() => onRouteToReviewer?.({ ...card.latest, lane: card.state as Swarm2InboxLaneId })}
                         className="rounded-lg border border-[var(--theme-border)] bg-[var(--theme-card)] px-2.5 py-1.5 text-[11px] text-[var(--theme-text)] hover:bg-[var(--theme-card2)]"
                       >
                         Steer

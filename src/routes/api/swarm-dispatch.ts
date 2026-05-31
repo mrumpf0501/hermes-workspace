@@ -1046,6 +1046,17 @@ export async function dispatchSwarmAssignments(body: DispatchRequest) {
     throw new SwarmDispatchError(`assignment task exceeds ${MAX_PROMPT_CHARS} characters`)
   }
 
+  // Validate all profiles exist before writing the mission record.
+  // This prevents orphaned mission entries for workers that can never run.
+  const missingProfiles = assignments
+    .map((a) => a.workerId)
+    .filter((workerId) => !existsSync(getProfilePath(workerId)))
+  if (missingProfiles.length > 0) {
+    throw new SwarmDispatchError(
+      `Profile not found for worker(s): ${missingProfiles.join(', ')}. Bootstrap the profile before dispatching.`,
+    )
+  }
+
   const timeoutRaw = typeof body.timeoutSeconds === 'number' ? body.timeoutSeconds : DEFAULT_TIMEOUT_S
   const timeoutSeconds = Math.max(10, Math.min(MAX_TIMEOUT_S, Math.floor(timeoutRaw)))
   const timeoutMs = timeoutSeconds * 1000

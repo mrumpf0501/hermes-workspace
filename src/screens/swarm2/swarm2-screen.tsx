@@ -667,7 +667,7 @@ type ControlPlaneStageProps = {
   latestMission: { id: string; title: string; state: string; assignmentCount: number; checkpointedCount: number } | null
   missions: Array<SwarmMissionSummary>
   runtimeEntries: Array<RuntimeEntry>
-  inboxCounts: { needsReview: number; blocked: number; ready: number }
+  inboxCounts: { needsReview: number; blocked: number }
   routerSeed: { key: number; prompt: string; mode: 'auto' | 'manual' | 'broadcast' } | null
   onOpenInboxItem: (item: Swarm2InboxItem) => void
   onRouteToReviewer: (item: Swarm2InboxItem) => void
@@ -675,6 +675,7 @@ type ControlPlaneStageProps = {
   onViewModeChange: (mode: ViewMode) => void
   onOpenRouter: () => void
   onRouterResults: () => void
+  selectedId: string | null
   onSelect: (workerId: string) => void
   onToggleRoom: (workerId: string) => void
   onOpenTui: (workerId: string) => void
@@ -712,6 +713,7 @@ function ControlPlaneStage({
   onViewModeChange,
   onOpenRouter,
   onRouterResults,
+  selectedId,
   onSelect,
   onToggleRoom,
   onOpenTui,
@@ -826,38 +828,88 @@ function ControlPlaneStage({
         />
         <div className="relative w-full pt-3">
           <div className={cn('relative z-10', viewMode === 'cards' ? 'block' : 'hidden')}>
-            <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 min-[1680px]:grid-cols-3">
-              {members.length === 0 ? (
-                <div className="col-span-full rounded-[1.5rem] border border-dashed border-[var(--theme-border)] bg-[var(--theme-card)] p-8 text-sm text-[var(--theme-muted)]">
-                  No swarm workers discovered from crew status yet.
-                </div>
-              ) : (
-                members.map((member) => {
-                  const runtime = runtimeByWorker.get(member.id)
-                  return (
-                    <OperationalWorkerCard
-                      key={member.id}
-                      cardRef={setWorkerRef(member.id)}
-                      member={member}
-                      currentTask={runtime?.currentTask ?? null}
-                      checkpointStatus={runtime?.checkpointStatus ?? null}
-                      runtimeState={runtime?.state ?? null}
-                      recentLines={recentLines(runtime)}
-                      recentOutputAt={runtime?.lastOutputAt ?? runtime?.lastSessionStartedAt ?? null}
-                      recentSummary={runtime?.lastRealSummary ?? runtime?.lastRealResult ?? runtime?.lastSummary ?? runtime?.lastResult ?? runtime?.blockedReason ?? null}
-                      artifacts={runtime?.artifacts ?? []}
-                      previews={runtime?.previews ?? []}
-                      inRoom={roomIds.includes(member.id)}
-                      selected={member.id === selectedId}
-                      onSelect={() => onSelect(member.id)}
-                      onToggleRoom={() => onToggleRoom(member.id)}
-                      onOpenTui={() => onOpenTui(member.id)}
-                      onOpenTasks={() => onOpenTasks(member.id)}
-                    />
-                  )
-                })
-              )}
-            </div>
+            {members.length === 0 ? (
+              <div className="rounded-[1.5rem] border border-dashed border-[var(--theme-border)] bg-[var(--theme-card)] p-8 text-sm text-[var(--theme-muted)]">
+                No swarm workers discovered from crew status yet.
+              </div>
+            ) : (() => {
+              const activeMembers = members.filter((m) => {
+                if (!m.profileFound) return false
+                const runtime = runtimeByWorker.get(m.id)
+                return m.sessionCount > 0 || isRuntimeActive(runtime)
+              })
+              const unusedMembers = members.filter((m) => {
+                if (!m.profileFound) return false
+                const runtime = runtimeByWorker.get(m.id)
+                return m.sessionCount === 0 && !isRuntimeActive(runtime)
+              })
+              const unconfiguredMembers = members.filter((m) => !m.profileFound)
+
+              function renderCard(member: (typeof members)[number]) {
+                const runtime = runtimeByWorker.get(member.id)
+                const isUnconfigured = !member.profileFound
+                const isUnused = !isUnconfigured && member.sessionCount === 0 && !isRuntimeActive(runtime)
+                const cardMode = isUnconfigured ? 'compact' : isUnused ? 'collapsed' : 'full'
+                return (
+                  <OperationalWorkerCard
+                    key={member.id}
+                    cardRef={setWorkerRef(member.id)}
+                    member={member}
+                    mode={cardMode}
+                    currentTask={runtime?.currentTask ?? null}
+                    checkpointStatus={runtime?.checkpointStatus ?? null}
+                    runtimeState={runtime?.state ?? null}
+                    recentLines={recentLines(runtime)}
+                    recentOutputAt={runtime?.lastOutputAt ?? runtime?.lastSessionStartedAt ?? null}
+                    recentSummary={runtime?.lastRealSummary ?? runtime?.lastRealResult ?? runtime?.lastSummary ?? runtime?.lastResult ?? runtime?.blockedReason ?? null}
+                    artifacts={runtime?.artifacts ?? []}
+                    previews={runtime?.previews ?? []}
+                    inRoom={roomIds.includes(member.id)}
+                    selected={member.id === selectedId}
+                    onSelect={() => onSelect(member.id)}
+                    onToggleRoom={() => onToggleRoom(member.id)}
+                    onOpenTui={() => onOpenTui(member.id)}
+                    onOpenTasks={() => onOpenTasks(member.id)}
+                  />
+                )
+              }
+
+              return (
+                <>
+                  <div className="grid grid-cols-1 gap-3 lg:grid-cols-2 min-[1680px]:grid-cols-3">
+                    {activeMembers.map(renderCard)}
+                  </div>
+                  {unusedMembers.length > 0 && (
+                    <>
+                      <div className="mt-5 mb-2 flex items-center gap-3">
+                        <div className="h-px flex-1 bg-[var(--theme-border)]" />
+                        <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--theme-muted)]">
+                          Unused agents ({unusedMembers.length})
+                        </span>
+                        <div className="h-px flex-1 bg-[var(--theme-border)]" />
+                      </div>
+                      <div className="grid grid-cols-1 gap-2 lg:grid-cols-2 min-[1680px]:grid-cols-3">
+                        {unusedMembers.map(renderCard)}
+                      </div>
+                    </>
+                  )}
+                  {unconfiguredMembers.length > 0 && (
+                    <>
+                      <div className="mt-5 mb-2 flex items-center gap-3">
+                        <div className="h-px flex-1 bg-[var(--theme-border)]" />
+                        <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--theme-muted)]">
+                          Roster-only / not provisioned ({unconfiguredMembers.length})
+                        </span>
+                        <div className="h-px flex-1 bg-[var(--theme-border)]" />
+                      </div>
+                      <div className="grid grid-cols-1 gap-2 lg:grid-cols-2 min-[1680px]:grid-cols-4">
+                        {unconfiguredMembers.map(renderCard)}
+                      </div>
+                    </>
+                  )}
+                </>
+              )
+            })()}
           </div>
 
           <div className={cn('relative z-10 flex flex-col gap-3', viewMode === 'runtime' ? 'block' : 'hidden')}>
@@ -954,6 +1006,7 @@ function ControlPlaneStage({
             <Swarm2ReportsView
               missions={missions}
               runtimes={runtimeEntries}
+              selectedWorkerId={selectedId}
               onSelectWorker={(workerId) => {
                 onSelect(workerId)
                 onViewModeChange('cards')
@@ -1373,14 +1426,6 @@ export function Swarm2Screen() {
         age: relativeTime(item.updatedAt),
         actionable: true,
       })),
-      ...inboxLanes.ready.map((item) => ({
-        id: `ready-${item.id}`,
-        workerId: item.workerId,
-        title: `${item.workerName} · Ready`,
-        body: item.summary,
-        age: relativeTime(item.updatedAt),
-        actionable: true,
-      })),
     ]
     if (latestMission) {
       laneItems.unshift({
@@ -1612,6 +1657,7 @@ export function Swarm2Screen() {
               void runtimeQuery.refetch()
               void missionsQuery.refetch()
             }}
+            selectedId={selectedId}
             onSelect={(workerId) => setSelectedId(workerId)}
             onToggleRoom={(workerId) => toggleRoom(workerId)}
             onOpenTui={(workerId) => {
@@ -1630,7 +1676,6 @@ export function Swarm2Screen() {
             inboxCounts={{
               needsReview: inboxLanes.needs_review.length,
               blocked: inboxLanes.blocked.length,
-              ready: inboxLanes.ready.length,
             }}
             routerSeed={routerSeed}
             onOpenInboxItem={openInboxItem}

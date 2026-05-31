@@ -213,6 +213,35 @@ export function Swarm2KanbanBoard({
   const [backendToast, setBackendToast] = useState<KanbanBackendPresentation | null>(null)
   const lastToastedBackendKey = useRef<string | null>(null)
 
+  // Drag-and-drop state
+  const [draggingCardId, setDraggingCardId] = useState<string | null>(null)
+  const [dragOverLane, setDragOverLane] = useState<KanbanLane | null>(null)
+  // Prevents click from firing right after a drag ends
+  const dragHappenedRef = useRef(false)
+
+  // Card edit modal state
+  const [editCard, setEditCard] = useState<SwarmKanbanCard | null>(null)
+  const [editTitle, setEditTitle] = useState('')
+  const [editSpec, setEditSpec] = useState('')
+  const [editCriteria, setEditCriteria] = useState('')
+  const [editWorker, setEditWorker] = useState('')
+  const [editReviewer, setEditReviewer] = useState('')
+  const [editStatus, setEditStatus] = useState<KanbanLane>('backlog')
+
+  function openEditCard(card: SwarmKanbanCard) {
+    setEditCard(card)
+    setEditTitle(card.title)
+    setEditSpec(card.spec)
+    setEditCriteria(card.acceptanceCriteria.join('\n'))
+    setEditWorker(card.assignedWorker ?? '')
+    setEditReviewer(card.reviewer ?? '')
+    setEditStatus(card.status)
+  }
+
+  function closeEditCard() {
+    setEditCard(null)
+  }
+
   // Poll every 5s so cards added/moved on the Hermes Dashboard appear here
   // without a manual refresh. The Hermes plugin also exposes a WebSocket
   // (/api/plugins/kanban/events) for true live updates; wiring that in is
@@ -272,6 +301,30 @@ export function Swarm2KanbanBoard({
     mutationFn: ({ id, updates }: { id: string; updates: Partial<SwarmKanbanCard> }) => updateKanbanCard(id, updates),
     onSuccess: async () => {
       await queryClient.invalidateQueries({ queryKey: ['swarm2', 'kanban'] })
+    },
+    onError: (error) => {
+      console.error('[kanban] update failed:', error instanceof Error ? error.message : String(error))
+    },
+  })
+
+  const saveEditMutation = useMutation({
+    mutationFn: () => {
+      if (!editCard) throw new Error('No card selected')
+      return updateKanbanCard(editCard.id, {
+        title: editTitle.trim(),
+        spec: editSpec.trim(),
+        acceptanceCriteria: splitCriteria(editCriteria),
+        assignedWorker: editWorker || null,
+        reviewer: editReviewer || null,
+        status: editStatus,
+      })
+    },
+    onSuccess: async () => {
+      closeEditCard()
+      await queryClient.invalidateQueries({ queryKey: ['swarm2', 'kanban'] })
+    },
+    onError: (error) => {
+      console.error('[kanban] save edit failed:', error instanceof Error ? error.message : String(error))
     },
   })
 
@@ -450,8 +503,42 @@ export function Swarm2KanbanBoard({
       <div className="grid grid-cols-1 gap-3 xl:grid-cols-3 2xl:grid-cols-6">
         {LANES.map((lane) => {
           const laneCards = cardsByLane.get(lane.id) ?? []
+          const isDropTarget = dragOverLane === lane.id && draggingCardId !== null
           return (
-            <div key={lane.id} className="min-h-64 rounded-2xl border border-[var(--theme-border)] bg-[var(--theme-bg)] p-2">
+            <div
+              key={lane.id}
+              className={cn(
+                'min-h-64 rounded-2xl border bg-[var(--theme-bg)] p-2 transition-colors',
+                lane.id === 'running' && draggingCardId !== null
+                  ? 'cursor-not-allowed opacity-60'
+                  : isDropTarget
+                    ? 'border-[var(--theme-accent)] bg-[var(--theme-accent-soft)]'
+                    : 'border-[var(--theme-border)]',
+              )}
+              onDragOver={(event) => {
+                if (lane.id === 'running') return // block drop on Running
+                event.preventDefault()
+                setDragOverLane(lane.id)
+              }}
+              onDragLeave={(event) => {
+                if (!event.currentTarget.contains(event.relatedTarget as Node)) {
+                  setDragOverLane(null)
+                }
+              }}
+              onDrop={(event) => {
+                if (lane.id === 'running') return // block drop on Running
+                event.preventDefault()
+                const cardId = event.dataTransfer.getData('text/plain')
+                setDragOverLane(null)
+                setDraggingCardId(null)
+                if (cardId) {
+                  const card = query.data?.cards.find((c) => c.id === cardId)
+                  if (card && card.status !== lane.id) {
+                    updateMutation.mutate({ id: cardId, updates: { status: lane.id } })
+                  }
+                }
+              }}
+            >
               <div className="mb-2 flex items-center justify-between gap-2 px-1">
                 <div>
                   <div className="flex items-center gap-2">
@@ -465,9 +552,39 @@ export function Swarm2KanbanBoard({
                 {query.isPending ? (
                   <div className="rounded-xl border border-dashed border-[var(--theme-border)] p-3 text-xs text-[var(--theme-muted)]">Waiting for source…</div>
                 ) : laneCards.length === 0 ? (
-                  <div className="rounded-xl border border-dashed border-[var(--theme-border)] p-3 text-xs text-[var(--theme-muted)]">Empty</div>
+                  <div className={cn(
+                    'rounded-xl border border-dashed p-3 text-xs text-[var(--theme-muted)]',
+                    isDropTarget ? 'border-[var(--theme-accent)] text-[var(--theme-accent-strong)]' : 'border-[var(--theme-border)]',
+                    lane.id === 'running' && draggingCardId !== null ? 'text-[var(--theme-muted)] italic' : '',
+                  )}>
+                    {lane.id === 'running' && draggingCardId !== null ? 'Nur Dispatcher darf hier ablegen' : isDropTarget ? 'Drop here' : 'Empty'}
+                  </div>
                 ) : laneCards.map((card) => (
-                  <article key={card.id} className="rounded-xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-3 text-left shadow-sm">
+                  <article
+                    key={card.id}
+                    draggable
+                    onDragStart={(event) => {
+                      dragHappenedRef.current = true
+                      setDraggingCardId(card.id)
+                      event.dataTransfer.setData('text/plain', card.id)
+                      event.dataTransfer.effectAllowed = 'move'
+                    }}
+                    onDragEnd={() => {
+                      setDraggingCardId(null)
+                      setDragOverLane(null)
+                      // Keep dragHappenedRef true briefly so the click doesn't fire
+                      setTimeout(() => { dragHappenedRef.current = false }, 100)
+                    }}
+                    onClick={() => {
+                      if (dragHappenedRef.current) return
+                      openEditCard(card)
+                    }}
+                    className={cn(
+                      'rounded-xl border border-[var(--theme-border)] bg-[var(--theme-card)] p-3 text-left shadow-sm transition-opacity',
+                      'cursor-pointer hover:border-[var(--theme-accent)] hover:shadow-md',
+                      draggingCardId === card.id ? 'opacity-40 cursor-grabbing' : 'cursor-grab active:cursor-grabbing',
+                    )}
+                  >
                     <div className="text-sm font-semibold leading-snug text-[var(--theme-text)]">{card.title}</div>
                     {card.spec ? <p className="mt-2 line-clamp-3 text-xs leading-relaxed text-[var(--theme-muted-2)]">{card.spec}</p> : null}
                     {card.acceptanceCriteria.length ? (
@@ -482,7 +599,7 @@ export function Swarm2KanbanBoard({
                       {card.missionId ? <div className="truncate" title={card.missionId}>Mission: {card.missionId}</div> : null}
                       {card.reportPath ? <div className="truncate" title={card.reportPath}>Report: {card.reportPath}</div> : null}
                     </div>
-                    <div className="mt-3 flex flex-wrap gap-1.5">
+                    <div className="mt-3 flex flex-wrap gap-1.5" onClick={(event) => event.stopPropagation()}>
                       {card.assignedWorker ? (
                         <button type="button" onClick={() => onSelectWorker?.(card.assignedWorker!)} className="rounded-full border border-[var(--theme-border)] px-2 py-1 text-[10px] font-semibold text-[var(--theme-muted)] hover:bg-[var(--theme-card2)] hover:text-[var(--theme-text)]">Open worker</button>
                       ) : null}
@@ -498,6 +615,59 @@ export function Swarm2KanbanBoard({
           )
         })}
       </div>
+
+      {editCard ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/35 px-4 py-6 backdrop-blur-sm">
+          <div className="max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-3xl border border-[var(--theme-border2)] bg-[var(--theme-card)] p-5 shadow-[0_30px_100px_var(--theme-shadow)]">
+            <div className="mb-4 flex items-start justify-between gap-3">
+              <div>
+                <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--theme-muted)]">Edit card</div>
+                <h3 className="mt-1 text-lg font-semibold text-[var(--theme-text)]">{editCard.title || 'Untitled'}</h3>
+              </div>
+              <button type="button" onClick={closeEditCard} className="rounded-lg border border-[var(--theme-border)] bg-[var(--theme-card2)] px-3 py-1.5 text-sm text-[var(--theme-muted)] hover:text-[var(--theme-text)]">Close</button>
+            </div>
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="block text-xs md:col-span-2">
+                <span className="mb-1 block font-semibold text-[var(--theme-muted)]">Title</span>
+                <input value={editTitle} onChange={(event) => setEditTitle(event.target.value)} className="w-full rounded-xl border border-[var(--theme-border)] bg-[var(--theme-bg)] px-3 py-2 text-sm text-[var(--theme-text)] outline-none" />
+              </label>
+              <label className="block text-xs md:col-span-2">
+                <span className="mb-1 block font-semibold text-[var(--theme-muted)]">Spec</span>
+                <textarea value={editSpec} onChange={(event) => setEditSpec(event.target.value)} rows={4} className="w-full resize-none rounded-xl border border-[var(--theme-border)] bg-[var(--theme-bg)] px-3 py-2 text-sm text-[var(--theme-text)] outline-none" />
+              </label>
+              <label className="block text-xs md:col-span-2">
+                <span className="mb-1 block font-semibold text-[var(--theme-muted)]">Acceptance criteria</span>
+                <textarea value={editCriteria} onChange={(event) => setEditCriteria(event.target.value)} rows={3} placeholder="One per line" className="w-full resize-none rounded-xl border border-[var(--theme-border)] bg-[var(--theme-bg)] px-3 py-2 text-sm text-[var(--theme-text)] outline-none" />
+              </label>
+              <label className="block text-xs">
+                <span className="mb-1 block font-semibold text-[var(--theme-muted)]">Assigned worker</span>
+                <select value={editWorker} onChange={(event) => setEditWorker(event.target.value)} className="w-full rounded-xl border border-[var(--theme-border)] bg-[var(--theme-bg)] px-3 py-2 text-sm text-[var(--theme-text)] outline-none">
+                  <option value="">Unassigned</option>
+                  {workers.map((worker) => <option key={worker.id} value={worker.id}>{worker.displayName || worker.id}</option>)}
+                </select>
+              </label>
+              <label className="block text-xs">
+                <span className="mb-1 block font-semibold text-[var(--theme-muted)]">Reviewer</span>
+                <select value={editReviewer} onChange={(event) => setEditReviewer(event.target.value)} className="w-full rounded-xl border border-[var(--theme-border)] bg-[var(--theme-bg)] px-3 py-2 text-sm text-[var(--theme-text)] outline-none">
+                  <option value="">Unassigned</option>
+                  {workers.map((worker) => <option key={worker.id} value={worker.id}>{worker.displayName || worker.id}</option>)}
+                </select>
+              </label>
+              <label className="block text-xs">
+                <span className="mb-1 block font-semibold text-[var(--theme-muted)]">Status</span>
+                <select value={editStatus} onChange={(event) => setEditStatus(event.target.value as KanbanLane)} className="w-full rounded-xl border border-[var(--theme-border)] bg-[var(--theme-bg)] px-3 py-2 text-sm text-[var(--theme-text)] outline-none">
+                  {LANES.map((lane) => <option key={lane.id} value={lane.id}>{lane.label}</option>)}
+                </select>
+              </label>
+              {saveEditMutation.error ? <div className="rounded-xl border border-red-400/40 bg-red-500/10 px-3 py-2 text-xs text-red-700 md:col-span-2">{saveEditMutation.error.message}</div> : null}
+              <div className="flex justify-end gap-2 md:col-span-2">
+                <button type="button" onClick={closeEditCard} className="rounded-xl border border-[var(--theme-border)] px-3 py-2 text-xs font-semibold text-[var(--theme-muted)] hover:bg-[var(--theme-card2)]">Cancel</button>
+                <button type="button" disabled={!editTitle.trim() || saveEditMutation.isPending} onClick={() => void saveEditMutation.mutateAsync()} className="rounded-xl bg-[var(--theme-accent)] px-3 py-2 text-xs font-semibold text-primary-950 disabled:opacity-50">{saveEditMutation.isPending ? 'Saving…' : 'Save changes'}</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </section>
   )
 }

@@ -210,6 +210,8 @@ const MODEL_OPTIONS = [
 ]
 const AVATAR_OPTIONS = ['','🤖','🧠','🛠️','📊','🧪','📝','⚙️','🔬','🚀']
 
+export type OperationalWorkerCardMode = 'full' | 'collapsed' | 'compact'
+
 export type OperationalWorkerCardProps = {
   member: CrewMember
   currentTask?: string | null
@@ -222,6 +224,7 @@ export type OperationalWorkerCardProps = {
   previews?: Array<Swarm2Preview>
   inRoom: boolean
   selected: boolean
+  mode?: OperationalWorkerCardMode
   onSelect: () => void
   onToggleRoom: () => void
   onOpenTui: () => void
@@ -240,6 +243,7 @@ export function OperationalWorkerCard({
   previews = [],
   inRoom,
   selected,
+  mode = 'full',
   onSelect,
   onToggleRoom,
   onOpenTui,
@@ -254,6 +258,22 @@ export function OperationalWorkerCard({
   const [draftModel, setDraftModel] = useState('')
   const [draftAvatar, setDraftAvatar] = useState('')
   const [taskComposerOpen, setTaskComposerOpen] = useState(false)
+  const [resetConfirm, setResetConfirm] = useState(false)
+  const [resetting, setResetting] = useState(false)
+
+  async function handleReset() {
+    setResetting(true)
+    try {
+      await fetch('/api/swarm-runtime/reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workerIds: [member.id], reason: 'Force-idle from worker card', actor: 'user' }),
+      })
+    } finally {
+      setResetting(false)
+      setResetConfirm(false)
+    }
+  }
   const state = deriveWorkerState(member, currentTask, checkpointStatus, runtimeState)
   const status = statusStyles(state)
   const role = settings.role || member.role || roleFromId(member.id)
@@ -365,7 +385,8 @@ export function OperationalWorkerCard({
       data-swarm2-worker-id={member.id}
       onClick={onSelect}
       className={cn(
-        'relative overflow-hidden flex min-h-[30rem] flex-col rounded-[1.35rem] border bg-[var(--theme-card)] p-3 text-[var(--theme-text)] shadow-[0_18px_44px_color-mix(in_srgb,var(--theme-shadow)_13%,transparent)] transition-all',
+        'relative overflow-hidden flex flex-col rounded-[1.35rem] border bg-[var(--theme-card)] p-3 text-[var(--theme-text)] shadow-[0_18px_44px_color-mix(in_srgb,var(--theme-shadow)_13%,transparent)] transition-all',
+        mode === 'full' ? 'min-h-[30rem]' : mode === 'collapsed' ? 'min-h-0' : 'min-h-0',
         'hover:-translate-y-[1px] hover:shadow-[0_22px_58px_color-mix(in_srgb,var(--theme-shadow)_18%,transparent)]',
         selected
           ? 'border-[var(--theme-accent)] ring-1 ring-[var(--theme-accent-soft-strong)]'
@@ -463,6 +484,11 @@ export function OperationalWorkerCard({
         </div>
       ) : null}
 
+      {mode === 'compact' ? null : mode === 'collapsed' ? (
+        <div className="mt-3 rounded-xl border border-dashed border-[var(--theme-border)] bg-[var(--theme-bg)] px-3 py-3 text-center text-[11px] text-[var(--theme-muted)]">
+          No sessions yet — agent not used.
+        </div>
+      ) : (
       <div
         ref={chatAnchorRef}
         onClick={(event) => event.stopPropagation()}
@@ -476,8 +502,9 @@ export function OperationalWorkerCard({
           className="h-full min-h-[16rem] bg-[var(--theme-bg)] text-[var(--theme-text)]"
         />
       </div>
+      )}
 
-      <section
+      {mode !== 'full' ? null : <section
         className={cn(
           'mt-3 rounded-xl border border-[var(--theme-border)] bg-[var(--theme-card)] px-2.5 py-2',
           selected ? 'min-h-[5.75rem]' : 'min-h-[5rem]',
@@ -568,9 +595,9 @@ export function OperationalWorkerCard({
               className={cn(selected ? 'min-h-[5.75rem]' : 'min-h-[5rem]', 'border-0 bg-transparent px-0 py-0')}
             />
           )}
-      </section>
+      </section>}
 
-      <div
+      {mode === 'compact' ? null : <div
         className="mt-auto pt-3 flex items-center justify-between gap-2 border-t border-[var(--theme-border)] text-[11px]"
         onClick={(event) => event.stopPropagation()}
       >
@@ -583,15 +610,48 @@ export function OperationalWorkerCard({
           <HugeiconsIcon icon={CheckListIcon} size={11} />
           Route to agent
         </button>
-        <button
-          type="button"
-          onClick={onOpenTui}
-          className="inline-flex items-center gap-1 rounded-full border border-[var(--theme-border)] bg-[var(--theme-bg)] px-2.5 py-1 text-[var(--theme-muted)] transition-colors hover:bg-[var(--theme-card2)] hover:text-[var(--theme-text)]"
-        >
-          <HugeiconsIcon icon={ComputerTerminal01Icon} size={11} />
-          Open terminal
-        </button>
-      </div>
+        <div className="flex items-center gap-1.5">
+          {state !== 'idle' && state !== 'offline' ? (
+            resetConfirm ? (
+              <>
+                <span className="text-[10px] text-[var(--theme-muted)]">Force idle?</span>
+                <button
+                  type="button"
+                  disabled={resetting}
+                  onClick={() => void handleReset()}
+                  className="rounded-full border border-red-400/40 bg-red-500/10 px-2 py-0.5 text-[10px] font-semibold text-red-600 hover:bg-red-500/20 disabled:opacity-50"
+                >
+                  {resetting ? '…' : 'Yes'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setResetConfirm(false)}
+                  className="rounded-full border border-[var(--theme-border)] bg-[var(--theme-bg)] px-2 py-0.5 text-[10px] text-[var(--theme-muted)] hover:bg-[var(--theme-card2)]"
+                >
+                  No
+                </button>
+              </>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setResetConfirm(true)}
+                title="Force the worker back to idle (does not stop the tmux session)"
+                className="inline-flex items-center gap-1 rounded-full border border-[var(--theme-border)] bg-[var(--theme-bg)] px-2.5 py-1 text-[var(--theme-muted)] transition-colors hover:border-red-400/50 hover:bg-red-500/10 hover:text-red-600"
+              >
+                Force idle
+              </button>
+            )
+          ) : null}
+          <button
+            type="button"
+            onClick={onOpenTui}
+            className="inline-flex items-center gap-1 rounded-full border border-[var(--theme-border)] bg-[var(--theme-bg)] px-2.5 py-1 text-[var(--theme-muted)] transition-colors hover:bg-[var(--theme-card2)] hover:text-[var(--theme-text)]"
+          >
+            <HugeiconsIcon icon={ComputerTerminal01Icon} size={11} />
+            Open terminal
+          </button>
+        </div>
+      </div>}
       </>
       ) : null}
       {settingsOpen ? (

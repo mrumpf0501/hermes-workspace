@@ -74,9 +74,13 @@ function buildCrewDefinitions(): CrewDefinition[] {
     : []
 
   const roster = rosterByWorkerId(dynamicProfiles)
+  const hasWorkspaceProfile = dynamicProfiles.includes('workspace')
   return [
-    { id: 'workspace', displayName: 'Workspace', humanLabel: 'Workspace — Primary profile', role: 'Primary profile', profilePath: null },
-    ...dynamicProfiles.map((profile) => buildCrewDefinitionFromRoster(profile, /^swarm\d+$/i.test(profile) ? roster.get(profile) : null)),
+    ...(hasWorkspaceProfile ? [] : [{ id: 'workspace', displayName: 'Workspace', humanLabel: 'Workspace — Primary profile', role: 'Primary profile', profilePath: null } as CrewDefinition]),
+    ...dynamicProfiles
+      .filter((profile) => profile !== 'workspace')
+      .map((profile) => buildCrewDefinitionFromRoster(profile, /^swarm\d+$/i.test(profile) ? roster.get(profile) : null)),
+    ...(hasWorkspaceProfile ? [{ id: 'workspace', displayName: 'Workspace', humanLabel: 'Workspace — Primary profile', role: 'Primary profile', profilePath: null } as CrewDefinition] : []),
   ]
 }
 
