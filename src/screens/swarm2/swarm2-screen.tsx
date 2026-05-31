@@ -712,7 +712,6 @@ function ControlPlaneStage({
   onViewModeChange,
   onOpenRouter,
   onRouterResults,
-  selectedId,
   onSelect,
   onToggleRoom,
   onOpenTui,
