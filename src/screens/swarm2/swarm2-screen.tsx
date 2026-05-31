@@ -675,7 +675,6 @@ type ControlPlaneStageProps = {
   onViewModeChange: (mode: ViewMode) => void
   onOpenRouter: () => void
   onRouterResults: () => void
-  selectedId: string | null
   onSelect: (workerId: string) => void
   onToggleRoom: (workerId: string) => void
   onOpenTui: (workerId: string) => void
