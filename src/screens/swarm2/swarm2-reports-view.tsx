@@ -680,6 +680,39 @@ export function Swarm2ReportsView({
     )
   }
 
+  function renderRowArtifacts(row: Swarm2ReportRow) {
+    if (row.artifacts.length === 0 && row.previews.length === 0) return null
+    return (
+      <div className="mt-2 flex flex-wrap gap-1">
+        {row.artifacts.map((artifact) => {
+          const filename = artifact.path ? artifact.path.split('/').pop() ?? artifact.label : artifact.label
+          return (
+            <span
+              key={artifact.id}
+              title={artifact.path ?? artifact.label}
+              className="inline-flex items-center gap-1 rounded-full border border-[var(--theme-border)] bg-[var(--theme-bg)] px-2 py-0.5 text-[10px] text-[var(--theme-muted-2)]"
+            >
+              <span className="opacity-50">{artifact.kind}</span>
+              <span>{filename}</span>
+            </span>
+          )
+        })}
+        {row.previews.map((preview) => (
+          <a
+            key={preview.id}
+            href={preview.url}
+            target="_blank"
+            rel="noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="inline-flex items-center gap-1 rounded-full border border-[var(--theme-accent)]/40 bg-[var(--theme-accent-soft)] px-2 py-0.5 text-[10px] text-[var(--theme-accent-strong)] hover:bg-[var(--theme-accent-soft-strong)]"
+          >
+            ↗ {preview.label}
+          </a>
+        ))}
+      </div>
+    )
+  }
+
   function renderRowActions(row: Swarm2InboxItem, compact = false) {
     const prUrl = extractPullRequestUrl(row)
     const buttonClass = compact
@@ -735,6 +768,7 @@ export function Swarm2ReportsView({
                 <div className="shrink-0 text-[10px] text-[var(--theme-muted)]">{formatAge(row.updatedAt)}</div>
               </div>
               <p className="mt-2 line-clamp-2 text-xs leading-relaxed text-[var(--theme-muted-2)]">{row.summary}</p>
+              {renderRowArtifacts(row)}
               {renderRowActions(row, true)}
               {expandedId === `reply:${row.id}` ? renderReplyComposer(row) : null}
             </div>
@@ -911,6 +945,7 @@ export function Swarm2ReportsView({
                           </div>
                           <div className="mt-2 line-clamp-1 text-xs font-semibold text-[var(--theme-text)]">{row.title}</div>
                           <div className="mt-1 line-clamp-2 text-[11px] text-[var(--theme-muted-2)]">{row.summary}</div>
+                          {renderRowArtifacts(row)}
                           {renderRowActions(inboxRow)}
                           {expandedId === `reply:${row.id}` ? renderReplyComposer(inboxRow) : null}
                         </div>
@@ -956,6 +991,7 @@ export function Swarm2ReportsView({
                       </div>
                       <h3 className="mt-2 truncate text-sm font-semibold text-[var(--theme-text)]">{row.title}</h3>
                       <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-[var(--theme-muted-2)]">{row.summary}</p>
+                      {renderRowArtifacts(row)}
                     </div>
                     <div className="shrink-0 text-right text-xs text-[var(--theme-muted)]">
                       <div className="flex flex-wrap justify-end gap-1.5">
@@ -983,23 +1019,6 @@ export function Swarm2ReportsView({
                         </div>
                       ))}
                     </dl>
-                    {(row.artifacts.length > 0 || row.previews.length > 0) ? (
-                      <div className="mt-3 rounded-xl border border-[var(--theme-border)] bg-[var(--theme-card)] px-3 py-2">
-                        <div className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-[var(--theme-muted)]">Artifacts</div>
-                        <div className="flex flex-wrap gap-1.5">
-                          {row.artifacts.map((artifact) => (
-                            <span key={artifact.id} title={artifact.path ?? artifact.label} className="rounded-full border border-[var(--theme-border)] bg-[var(--theme-bg)] px-2 py-1 text-[10px] text-[var(--theme-muted-2)]">
-                              {artifact.kind}: {artifact.label}
-                            </span>
-                          ))}
-                          {row.previews.map((preview) => (
-                            <a key={preview.id} href={preview.url} target="_blank" rel="noreferrer" className="rounded-full border border-[var(--theme-accent)]/40 bg-[var(--theme-accent-soft)] px-2 py-1 text-[10px] text-[var(--theme-accent-strong)]">
-                              preview: {preview.label}
-                            </a>
-                          ))}
-                        </div>
-                      </div>
-                    ) : null}
                   </div>
                 ) : null}
               </article>

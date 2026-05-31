@@ -667,7 +667,7 @@ type ControlPlaneStageProps = {
   latestMission: { id: string; title: string; state: string; assignmentCount: number; checkpointedCount: number } | null
   missions: Array<SwarmMissionSummary>
   runtimeEntries: Array<RuntimeEntry>
-  inboxCounts: { needsReview: number; blocked: number }
+  inboxCounts: { needsReview: number; blocked: number; ready: number }
   routerSeed: { key: number; prompt: string; mode: 'auto' | 'manual' | 'broadcast' } | null
   onOpenInboxItem: (item: Swarm2InboxItem) => void
   onRouteToReviewer: (item: Swarm2InboxItem) => void
@@ -785,6 +785,34 @@ function ControlPlaneStage({
     [members, selectedId, roomIds],
   )
 
+  const missionArtifactsByWorker = useMemo(() => {
+    const map = new Map<string, Array<{ id: string; kind: string; label: string; path: string; source: string }>>()
+    for (const mission of missions) {
+      for (const assignment of mission.assignments ?? []) {
+        const workerId = assignment.workerId
+        if (!workerId || !assignment.checkpoint?.filesChanged) continue
+        const files = assignment.checkpoint.filesChanged
+          .split(/\n|,/)
+          .map((f: string) => f.trim())
+          .filter(Boolean)
+          .slice(0, 12)
+        for (const p of files) {
+          const existing = map.get(workerId) ?? []
+          if (existing.some((a) => a.path === p)) continue
+          existing.push({
+            id: `inferred-${workerId}-${p}`,
+            kind: 'diff',
+            label: p.split('/').filter(Boolean).pop() ?? p,
+            path: p,
+            source: 'inferred',
+          })
+          map.set(workerId, existing)
+        }
+      }
+    }
+    return map
+  }, [missions])
+
   return (
     <section
       ref={stageRef}
@@ -848,6 +876,11 @@ function ControlPlaneStage({
                 const isUnconfigured = !member.profileFound
                 const isUnused = !isUnconfigured && member.sessionCount === 0 && !isRuntimeActive(runtime)
                 const cardMode = isUnconfigured ? 'compact' : isUnused ? 'collapsed' : 'full'
+                const runtimeArtifacts = runtime?.artifacts ?? []
+                const missionArtifacts = missionArtifactsByWorker.get(member.id) ?? []
+                const mergedArtifacts = runtimeArtifacts.length > 0
+                  ? runtimeArtifacts
+                  : missionArtifacts as typeof runtimeArtifacts
                 return (
                   <OperationalWorkerCard
                     key={member.id}
@@ -860,7 +893,7 @@ function ControlPlaneStage({
                     recentLines={recentLines(runtime)}
                     recentOutputAt={runtime?.lastOutputAt ?? runtime?.lastSessionStartedAt ?? null}
                     recentSummary={runtime?.lastRealSummary ?? runtime?.lastRealResult ?? runtime?.lastSummary ?? runtime?.lastResult ?? runtime?.blockedReason ?? null}
-                    artifacts={runtime?.artifacts ?? []}
+                    artifacts={mergedArtifacts}
                     previews={runtime?.previews ?? []}
                     inRoom={roomIds.includes(member.id)}
                     selected={member.id === selectedId}
@@ -1655,7 +1688,6 @@ export function Swarm2Screen() {
               void runtimeQuery.refetch()
               void missionsQuery.refetch()
             }}
-            selectedId={selectedId}
             onSelect={(workerId) => setSelectedId(workerId)}
             onToggleRoom={(workerId) => toggleRoom(workerId)}
             onOpenTui={(workerId) => {
@@ -1674,6 +1706,7 @@ export function Swarm2Screen() {
             inboxCounts={{
               needsReview: inboxLanes.needs_review.length,
               blocked: inboxLanes.blocked.length,
+              ready: 0,
             }}
             routerSeed={routerSeed}
             onOpenInboxItem={openInboxItem}
